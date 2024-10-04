@@ -481,6 +481,19 @@ struct GitInputScheme : InputScheme
         return *head;
     }
 
+    std::string getGitSubmodules(ref<GitRepo>& repo, Hash& rev, bool exportIgnore) const {
+        std::string output = "{";
+
+        for (auto & [submodule, submoduleRev] : repo->getSubmodules(rev, exportIgnore)) {
+            if (output != "{") {
+                output += ",";
+            }
+            output += fmt("\"%s\": {\"url\": \"%s\", \"rev\": \"%s\"}", submodule.path, submodule.url, submoduleRev.gitRev());
+        }
+
+        return output + "}";
+    }
+
     static MakeNotAllowedError makeNotAllowedError(std::string url)
     {
         return [url{std::move(url)}](const CanonPath & path) -> RestrictedPathError
@@ -676,6 +689,8 @@ struct GitInputScheme : InputScheme
             input.attrs.insert_or_assign("revCount", getIntAttr(infoAttrs, "revCount"));
         input.attrs.insert_or_assign("lastModified", getIntAttr(infoAttrs, "lastModified"));
 
+        input.attrs.insert_or_assign("gitSubmodules", getGitSubmodules(repo, rev, exportIgnore));
+
         return {accessor, std::move(input)};
     }
 
@@ -692,6 +707,11 @@ struct GitInputScheme : InputScheme
         auto repo = GitRepo::openRepo(repoInfo.url, false, false);
 
         auto exportIgnore = getExportIgnoreAttr(input);
+
+        /* Return a rev of 000... if there are no commits yet. */
+        auto rev = repoInfo.workdirInfo.headRev.value_or(nullRev);
+
+        input.attrs.insert_or_assign("gitSubmodules", getGitSubmodules(repo, rev, exportIgnore));
 
         ref<SourceAccessor> accessor =
             repo->getAccessor(repoInfo.workdirInfo,
@@ -738,9 +758,6 @@ struct GitInputScheme : InputScheme
 
             if (auto ref = repo->getWorkdirRef())
                 input.attrs.insert_or_assign("ref", *ref);
-
-            /* Return a rev of 000... if there are no commits yet. */
-            auto rev = repoInfo.workdirInfo.headRev.value_or(nullRev);
 
             input.attrs.insert_or_assign("rev", rev.gitRev());
             input.attrs.insert_or_assign("revCount",
